@@ -1,0 +1,71 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Build FWE
+
+inputs:
+  build-arch:
+    required: true
+  upload-arch:
+    required: true
+  cache-paths:
+    required: true
+  dist-files:
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: cache-deps
+      id: cache-deps
+      uses: actions/cache@v3
+      with:
+        path: cache
+        key: deps-${{ inputs.build-arch }}-${{ hashFiles('tools/install-deps-*.sh') }}
+
+    - name: install-deps
+      shell: bash
+      run: |
+        if [ -d cache ]; then
+          sudo cp -r cache/* /usr/local
+        fi
+        sudo ./tools/install-deps-${{ inputs.build-arch }}.sh
+        if [ ! -d cache ]; then
+          mkdir cache
+          IFS=":"
+          for P in ${{ inputs.cache-paths }}; do
+            cp -r ${P} cache
+          done
+        fi
+
+    - name: build
+      shell: bash
+      run: |
+        ./tools/build-fwe-${{ inputs.build-arch }}.sh
+        ./tools/build-dist.sh ${{ inputs.dist-files }}
+        # If the output file changes, make sure to update the upload-asset job below
+        mv build/aws-iot-fleetwise-edge.tar.gz build/aws-iot-fleetwise-edge-${{ inputs.upload-arch }}.tar.gz
+
+    - name: unit-test
+      shell: bash
+      if: inputs.build-arch  == 'native'
+      run: |
+        cd build
+        CTEST_OUTPUT_ON_FAILURE=1 ctest
+
+    - name: upload-artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: build-${{ inputs.upload-arch }}
+        path: |
+          build/aws-iot-fleetwise-edge
+          build/aws-iot-fleetwise-edge-${{ inputs.upload-arch }}.tar.gz
+          build/Testing/Temporary/
+          build/**/report-*.xml
+
+    - name: upload-asset
+      if: github.ref_type == 'tag'
+      shell: bash
+      run: |
+        RELEASE_VERSION="${GITHUB_REF/refs\/tags\//}"
+        gh release upload ${RELEASE_VERSION} build/aws-iot-fleetwise-edge-${{ inputs.upload-arch }}.tar.gz

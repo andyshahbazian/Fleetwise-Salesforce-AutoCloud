@@ -1,0 +1,77 @@
+{
+  "version": "1.0",
+  "networkInterfaces": [
+    {
+      "canInterface": {
+        "interfaceName": "vcan0",
+        "protocolName": "CAN",
+        "protocolVersion": "2.0A"
+      },
+      "interfaceId": "1",
+      "type": "canInterface"
+    },
+    {
+      "obdInterface": {
+        "interfaceName": "vcan0",
+        "obdStandard": "J1979",
+        "pidRequestIntervalSeconds": 0,
+        "dtcRequestIntervalSeconds": 0
+      },
+      "interfaceId": "2",
+      "type": "obdInterface"
+    }
+  ],
+  "staticConfig": {
+    "bufferSizes": {
+      "dtcBufferSize": 100,
+      "decodedSignalsBufferSize": 10000,
+      "rawCANFrameBufferSize": 10000
+    },
+    "threadIdleTimes": {
+      "inspectionThreadIdleTimeMs": 50,
+      "socketCANThreadIdleTimeMs": 50,
+      "canDecoderThreadIdleTimeMs": 50
+    },
+    "persistency": {
+      "persistencyPath": "./",
+      "persistencyPartitionMaxSize": 524288,
+      "persistencyUploadRetryInterval": 10000
+    },
+    "internalParameters": {
+      "readyToPublishDataBufferSize": 10000,
+      "systemWideLogLevel": "Trace",
+      "dataReductionProbabilityDisabled": false,
+      "persistencyUploadRetryIntervalMs": 5000
+    },
+    "publishToCloudParameters": {
+      "maxPublishMessageCount": 1000,
+      "collectionSchemeManagementCheckinIntervalMs": 5000
+    },
+    "mqttConnection": {
+      "endpointUrl": "my-endpoint.my-region.amazonaws.com",
+      "clientId": "ClientId",
+      "collectionSchemeListTopic": "collection-scheme-list-topic",
+      "decoderManifestTopic": "decoder-manifest-topic",
+      "metricsUploadTopic": "aws-iot-fleetwise-metrics-upload",
+      "loggingUploadTopic": "aws-iot-fleetwise-logging-upload",
+      "canDataTopic": "can-data",
+      "checkinTopic": "checkin",
+      "certificateFilename": "path/to/my-certificate.pem.crt",
+      "privateKeyFilename": "path/to/my-private.pem.key",
+      "rootCAFilename": "path/to/my-root-ca.pem.crt"
+    },
+    "iWaveGpsExample": {
+      "nmeaFilePath": "/tmp/engineTestIWaveGPSfile.txt",
+      "canChannel": "IWAVE-GPS-CAN",
+      "canFrameId": "1",
+      "longitudeStartBit": "32",
+      "latitudeStartBit": "0"
+    },
+    "remoteProfilerDefaultValues": {
+      "loggingUploadLevelThreshold": "Warning",
+      "metricsUploadIntervalMs": 60000,
+      "loggingUploadMaxWaitBeforeUploadMs": 60000,
+      "profilerPrefix": "TestVehicle1"
+    }
+  }
+}

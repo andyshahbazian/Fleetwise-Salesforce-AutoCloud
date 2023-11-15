@@ -1,0 +1,205 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  Ec2InstanceType:
+    Description: Type of EC2 instance
+    Type: String
+    Default: m6g.8xlarge
+    AllowedValues:
+      - m6g.medium
+      - m6g.large
+      - m6g.xlarge
+      - m6g.2xlarge
+      - m6g.4xlarge
+      - m6g.8xlarge
+      - m6g.12xlarge
+      - m6g.16xlarge
+  Ec2KeyPair:
+    Description: Name of SSH key pair (required)
+    Type: String
+    ConstraintDescription:
+      "Must be the 'Name' of an SSH key pair from here
+      https://console.aws.amazon.com/ec2/v2/home#KeyPairs:"
+    AllowedPattern: ".+"
+  Ec2VolumeSize:
+    Description: Size of storage space in GB
+    Type: String
+    Default: 500
+Resources:
+  Ec2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Instance security group
+  Ec2SecurityGroupSshIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Allow inbound SSH access
+      GroupId: !GetAtt Ec2SecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      CidrIp: "0.0.0.0/0"
+  Ec2SecurityGroupSelfIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Allow access in same security group
+      GroupId: !GetAtt Ec2SecurityGroup.GroupId
+      IpProtocol: -1
+      SourceSecurityGroupId: !GetAtt Ec2SecurityGroup.GroupId
+  Ec2ServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-EC2-ServicePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: "*"
+                Resource: "*"
+  Ec2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref Ec2ServiceRole
+  Ec2LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${AWS::StackName}-EC2-LaunchTemplate
+      LaunchTemplateData:
+        ImageId: !FindInMap [AMIRegionMap, !Ref "AWS::Region", AMIID]
+        KeyName: !Ref Ec2KeyPair
+        InstanceType: !Ref Ec2InstanceType
+        IamInstanceProfile:
+          Name: !Ref Ec2InstanceProfile
+        SecurityGroupIds: !Split [",", !GetAtt Ec2SecurityGroup.GroupId]
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub ${AWS::StackName}-Ec2-Instance
+        MetadataOptions:
+          HttpEndpoint: "enabled"
+          HttpTokens: "required"
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: !Ref Ec2VolumeSize
+              DeleteOnTermination: true
+              Encrypted: true
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            set -euo pipefail
+
+            # Wait for any existing package install to finish
+            i=0
+            while true; do
+              if sudo fuser /var/{lib/{dpkg,apt/lists},cache/apt/archives}/lock >/dev/null 2>&1; then
+                i=0
+              else
+                i=`expr $i + 1`
+                if expr $i \>= 10 > /dev/null; then
+                  break
+                fi
+              fi
+              sleep 1
+            done
+
+            # Upgrade system and reboot if required
+            apt update && apt upgrade -y
+            if [ -f /var/run/reboot-required ]; then
+              # Delete the UserData info file so that we run again after reboot
+              rm -f /var/lib/cloud/instances/*/sem/config_scripts_user
+              reboot
+              exit
+            fi
+
+            # Install helper scripts:
+            apt update && apt install -y python3-setuptools
+            mkdir -p /opt/aws/bin
+            wget https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
+            python3 -m easy_install --script-dir /opt/aws/bin aws-cfn-bootstrap-py3-latest.tar.gz
+            rm aws-cfn-bootstrap-py3-latest.tar.gz
+
+            # On error, signal back to cfn:
+            error_handler() {
+              /opt/aws/bin/cfn-signal --success false --stack ${AWS::StackName} --resource Ec2Instance --region ${AWS::Region}
+            }
+            trap error_handler ERR
+
+            # Install packages
+            apt update && apt install -y ec2-instance-connect htop jq unzip zip
+
+            # Install AWS CLI:
+            curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"
+            unzip -q awscliv2.zip
+            ./aws/install
+            rm awscliv2.zip
+
+            # Signal init complete:
+            /opt/aws/bin/cfn-signal --stack ${AWS::StackName} --resource Ec2Instance --region ${AWS::Region}
+  Ec2Instance:
+    Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal:
+        Count: 1
+        Timeout: PT15M
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref Ec2LaunchTemplate
+        Version: !GetAtt Ec2LaunchTemplate.LatestVersionNumber
+Mappings:
+  # Ubuntu 20.04 arm64 AMIs
+  AMIRegionMap:
+    ap-northeast-1:
+      AMIID: ami-04620c7c89721f311
+    ap-northeast-2:
+      AMIID: ami-0ef6c9b9c9ee930fc
+    ap-northeast-3:
+      AMIID: ami-02315f10670d2dc08
+    ap-south-1:
+      AMIID: ami-044e515ad5805ed4e
+    ap-southeast-1:
+      AMIID: ami-0409c5b04ce681d29
+    ap-southeast-2:
+      AMIID: ami-0e7cb42982ac39e27
+    ca-central-1:
+      AMIID: ami-0a8aa6c089cc882ac
+    eu-central-1:
+      AMIID: ami-05158c60737714c4a
+    eu-north-1:
+      AMIID: ami-0350b31cb022529db
+    eu-west-1:
+      AMIID: ami-0f6cc268166e75726
+    eu-west-2:
+      AMIID: ami-01c8c1dd0ad622492
+    eu-west-3:
+      AMIID: ami-0c5b385769ca9b08a
+    sa-east-1:
+      AMIID: ami-0a42aee4ede7f6d92
+    us-east-1:
+      AMIID: ami-0f6426fe0b6419ecc
+    us-east-2:
+      AMIID: ami-03605c16ec8bff7de
+    us-west-1:
+      AMIID: ami-04ad050fe219deea9
+    us-west-2:
+      AMIID: ami-08ade17b00c7e2172
+Outputs:
+  Ec2InstanceId:
+    Description: "EC2 instance ID"
+    Value: !Ref Ec2Instance
+  Ec2InstancePublicIp:
+    Description: "EC2 instance public IP address"
+    Value: !GetAtt Ec2Instance.PublicIp

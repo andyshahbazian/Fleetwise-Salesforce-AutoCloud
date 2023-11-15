@@ -1,0 +1,137 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+option java_package = "com.amazonaws.iot.autobahn.schemas";
+package Aws.IoTFleetWise.Schemas.VehicleDataMsg;
+
+/*
+ * VehicleData payload for all events triggered by CollectionSchemes including condition based
+ * events and periodic time based events.
+ */
+message VehicleData {
+
+    /*
+     * Synchronization ID of the campaign that triggered the collection of the data in this message
+     */
+    string campaign_sync_id = 1;
+
+    /*
+     * Synchronization ID of the decoder manifest used to decode the signals in this message
+     */
+    string decoder_sync_id = 2;
+
+    /*
+     * A unique ID that FWE generates each time a collectionScheme condition is triggered.
+     */
+    uint32 collection_event_id = 3;
+
+    /*
+     * The absolute timestamp in milliseconds since Unix Epoch of when the event was triggered.
+     */
+    uint64 collection_event_time_ms_epoch = 4;
+
+    /*
+     * Captured signals, which includes both OBD PIDs and signals decoded from normal CAN traffic
+     */
+    repeated CapturedSignal captured_signals = 5;
+
+    /*
+     * Captured DTC Information if specified by the  collection scheme
+     */
+    DtcData dtc_data = 6;
+
+    /*
+     * Captured raw CAN frames if specified by the collectionScheme
+     */
+    repeated CanFrame can_frames = 7;
+
+    /*
+     * Captured Geohash which reflect which geohash tile the vehicle is currently located.
+     */
+    Geohash geohash = 8;
+}
+
+/*
+ * Represents all signals for CAN and OBDII signals
+ */
+message CapturedSignal {
+
+    /*
+     * Milliseconds relative to the event_time_ms_epoch of when the signal arrived on the bus
+     */
+    sint64 relative_time_ms = 1;
+
+    /*
+     * The signal id of the physical value of a signal that was captured. This maps directly to signal IDs provided in
+     * the collection schemes and decoder manifest. Signals can come from normal CAN traffic or OBD-II PIDs. In the case
+     * of OBD-II PIDs, Signal ID will only map to one of those signals, as per the decoder manifest.
+     */
+    uint32 signal_id = 2;
+
+    /*
+     * Data types of physical signal values.
+     */
+    oneof SignalValue {
+
+        /*
+         * A double value of a decoded physical value. For Alpha, PID data will be calculated using
+         * a PID formula and directly cast to a double.
+         */
+        double double_value = 3;
+    }
+}
+
+/*
+ * A raw CAN2.0 A or B frame
+ */
+message CanFrame {
+
+   /*
+    * Milliseconds relative to the event_time_ms_epoch. Can be negative or positive.
+    */
+   sint64 relative_time_ms = 1;
+
+   /*
+    * CAN Message Arbitration ID
+    */
+   uint32 message_id = 2;
+
+   /*
+    * The CAN interface on which the CAN Frame was received
+    */
+   string interface_id = 3;
+
+   /*
+    * Array of bytes from the CAN Frame
+    */
+   bytes byte_values = 4;
+}
+
+message DtcData {
+
+   /*
+    * Milliseconds relative to the event_time_ms_epoch. Can be negative or positive.
+    */
+   sint64 relative_time_ms = 1;
+
+   /*
+    * Strings of active DTC codes
+    */
+   repeated string active_dtc_codes = 2;
+}
+
+message Geohash {
+
+    /*
+     * Geohash in string format. It's encoded in base 32 format. The maximum resolution of geohash is used and the string is always 9 characters long.
+     */
+    string geohash_string = 1;
+
+    /*
+     * Previous Geohash in string format encoded in base 32 format. The maximum resolution of geohash is used and the
+     * string is always 9 characters long.
+     */
+    string prev_reported_geohash_string = 2;
+}

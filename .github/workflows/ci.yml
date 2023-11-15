@@ -1,0 +1,193 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: CI
+
+permissions:
+  id-token: write
+  contents: write
+
+on:
+  push:
+    branches: ["*"]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: ["*"]
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  linting:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.8"
+      - run: sudo apt-get install expect
+      - run: pip install pre-commit
+      - run: unbuffer pre-commit run --all-files
+
+  build-amd64:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: "./.github/template/fwe-build"
+        with:
+          build-arch: "native"
+          upload-arch: "amd64"
+          cache-paths: /usr/local/x86_64-linux-gnu
+          dist-files: build/aws-iot-fleetwise-edge:.
+
+  build-arm64:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: "./.github/template/fwe-build"
+        with:
+          build-arch: "cross-arm64"
+          upload-arch: "arm64"
+          cache-paths: /usr/local/aarch64-linux-gnu:/usr/local/x86_64-linux-gnu
+          dist-files: build/aws-iot-fleetwise-edge:.
+
+  build-armhf:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: "./.github/template/fwe-build"
+        with:
+          build-arch: "cross-armhf"
+          upload-arch: "armhf"
+          cache-paths: /usr/local/arm-linux-gnueabihf:/usr/local/x86_64-linux-gnu
+          dist-files: build/aws-iot-fleetwise-edge:.
+
+  build-android:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: "./.github/template/fwe-build"
+        with:
+          build-arch: "cross-android"
+          upload-arch: "android"
+          cache-paths: /usr/local/x86_64-linux-android:/usr/local/aarch64-linux-android:/usr/local/armv7a-linux-androideabi:/usr/local/x86_64-linux-gnu
+          dist-files:
+            build/x86_64/libaws-iot-fleetwise-edge.so:x86_64
+            build/armeabi-v7a/libaws-iot-fleetwise-edge.so:armeabi-v7a
+            build/arm64-v8a/libaws-iot-fleetwise-edge.so:arm64-v8a
+      - name: build-app
+        run: |
+          mkdir -p tools/android-app/app/src/main/jniLibs
+          cp -r build/dist/x86_64 build/dist/arm64-v8a build/dist/armeabi-v7a tools/android-app/app/src/main/jniLibs
+          cp THIRD-PARTY-LICENSES tools/android-app/app/src/main/assets
+          if [ "${GITHUB_REPOSITORY}" == "aws/aws-iot-fleetwise-edge" ]; then
+            curl -o tools/android-app/app/src/main/res/mipmap-xhdpi/ic_launcher.webp \
+              https://fleetwise-app.automotive.iot.aws.dev/ic_launcher.webp
+          fi
+          cd tools/android-app
+          unset ANDROID_SDK_ROOT
+          ANDROID_HOME=/usr/local/android_sdk ./gradlew assembleRelease
+      - uses: aws-actions/configure-aws-credentials@v2
+        if: github.repository == 'aws/aws-iot-fleetwise-edge' && github.event_name == 'push'
+        with:
+          role-to-assume: ${{ secrets.ANDROID_SIGNING_ROLE }}
+          aws-region: us-east-1
+      - name: sign-app
+        if: github.repository == 'aws/aws-iot-fleetwise-edge' && github.event_name == 'push'
+        run: |
+          source tools/install-deps-versions.sh
+          SIGNING_INFO=`aws secretsmanager get-secret-value --region us-east-1 --secret-id AndroidAppKeyStore | jq -r .SecretString`
+          echo "${SIGNING_INFO}" | jq -r .KeyStore | base64 --decode > ~/android-signing.jks
+          KEYSTORE_PASSWORD=`echo "${SIGNING_INFO}" | jq -r .KeyStorePassword`
+          cd tools/android-app
+          /usr/local/android_sdk/build-tools/${VERSION_ANDROID_BUILD_TOOLS}/zipalign -v -p 4 \
+            app/build/outputs/apk/release/app-release-unsigned.apk \
+            app/build/outputs/apk/release/app-release-unsigned-aligned.apk
+          /usr/local/android_sdk/build-tools/${VERSION_ANDROID_BUILD_TOOLS}/apksigner sign \
+            --ks ~/android-signing.jks \
+            --ks-pass "pass:${KEYSTORE_PASSWORD}" \
+            --out app/build/outputs/apk/release/aws-iot-fleetwise-edge.apk \
+            app/build/outputs/apk/release/app-release-unsigned-aligned.apk
+          shred -u ~/android-signing.jks
+      - name: upload-artifacts
+        if: github.repository == 'aws/aws-iot-fleetwise-edge' && github.event_name == 'push'
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-android-app
+          path: |
+            tools/android-app/app/build/outputs/apk/release/aws-iot-fleetwise-edge.apk
+      - name: upload-asset
+        if: github.repository == 'aws/aws-iot-fleetwise-edge' && github.ref_type == 'tag'
+        run: |
+          RELEASE_VERSION="${GITHUB_REF/refs\/tags\//}"
+          gh release upload ${RELEASE_VERSION} tools/android-app/app/build/outputs/apk/release/aws-iot-fleetwise-edge.apk
+
+  build-docker:
+    runs-on: ubuntu-20.04
+    needs:
+      - build-amd64
+      - build-arm64
+      - build-armhf
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/download-artifact@v3
+      - name: Move artifacts to match buildx TARGETPLATFORM structure
+        run: |
+          mkdir -p linux/arm
+          mv build-amd64 linux/amd64
+          mv build-arm64 linux/arm64
+          mv build-armhf linux/arm/v7
+          find linux -name aws-iot-fleetwise-edge -exec chmod +x {} \;
+      - uses: docker/setup-qemu-action@v2
+      - uses: docker/setup-buildx-action@v2
+      - uses: aws-actions/configure-aws-credentials@v2
+        if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
+        with:
+          role-to-assume: ${{ secrets.PUBLIC_ECR_PUSH_ROLE }}
+          aws-region: us-east-1
+      - uses: aws-actions/amazon-ecr-login@v1
+        if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
+        with:
+          registry-type: public
+      - id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: public.ecr.aws/aws-iot-fleetwise-edge/aws-iot-fleetwise-edge
+      - uses: docker/build-push-action@v3
+        with:
+          context: .
+          file: "./tools/container/Dockerfile"
+          push:
+            ${{ github.repository == 'aws/aws-iot-fleetwise-edge' && ( github.ref_type == 'tag' ||
+            github.ref == 'refs/heads/main' ) }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  copy-cfn-templates:
+    runs-on: ubuntu-20.04
+    if:
+      github.repository == 'aws/aws-iot-fleetwise-edge' && (github.ref_type == 'tag' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+    steps:
+      - uses: actions/checkout@v3
+      - uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.CFN_TEMPLATES_COPY_ROLE }}
+          aws-region: us-east-1
+      - name: copy-to-s3
+        run: |
+          SRC_PATH="tools/cfn-templates/"
+          if [ "${GITHUB_REF_TYPE}" == "tag" ]; then
+            RELEASE_VERSION="${GITHUB_REF/refs\/tags\//}"
+            DEST_URL="s3://aws-iot-fleetwise/${RELEASE_VERSION}/cfn-templates/"
+            aws s3 cp --recursive --acl "authenticated-read" --exclude README.md ${SRC_PATH} ${DEST_URL}
+          fi
+          if [ "${GITHUB_EVENT_NAME}" == "push" ] && [ "${GITHUB_REF}" == "refs/heads/main" ]; then
+            LATEST_URL="s3://aws-iot-fleetwise/latest/"
+            aws s3 rm --recursive ${LATEST_URL}
+            DEST_URL="${LATEST_URL}cfn-templates/"
+            aws s3 cp --recursive --acl "authenticated-read" --exclude README.md ${SRC_PATH} ${DEST_URL}
+          fi

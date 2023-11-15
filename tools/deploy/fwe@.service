@@ -1,0 +1,12 @@
+[Unit]
+Description=FWE #%i
+After=network-online.target setup-socketcan.service
+Wants=network-online.target setup-socketcan.service
+
+[Service]
+Restart=always
+RestartSec=1
+ExecStart=/usr/bin/run-fwe.sh %i
+
+[Install]
+WantedBy=multi-user.target

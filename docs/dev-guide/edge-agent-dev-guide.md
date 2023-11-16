@@ -170,7 +170,7 @@ collect data from it.
      `myfwdemo`, you must pass those values when calling `demo.sh`:
 
      ```bash
-     ./demo.sh --vehicle-name myfwdemo --fleet-size 2 --region eu-central-1
+     ./demo.sh --vehicle-name myflyingcar --fleet-size 1 --region us-east-1
      ```
 
    The demo script:

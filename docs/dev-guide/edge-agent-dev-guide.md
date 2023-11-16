@@ -104,7 +104,9 @@ requirements, you can use the following CloudFormation template to deploy FWE to
 instance.
 
 1. Click here to
-   [**Launch CloudFormation Template**](https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/quickcreate?templateUrl=https%3A%2F%2Faws-iot-fleetwise.s3.us-west-2.amazonaws.com%2Flatest%2Fcfn-templates%2Ffwdemo.yml&stackName=fwdemo).
+   [**Launch CloudFormation Template**]([[https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/quickcreate?templateUrl=https%3A%2F%2Faws-iot-fleetwise.s3.us-west-2.amazonaws.com%2Flatest%2Fcfn-templates%2Ffwdemo.yml&stackName=fwdemo](https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/quickcreate?templateUrl=https%3A%2F%2Ffleetwise-automation.s3.us-east-1.amazonaws.com%2Ffwdemo.yml&stackName=flyingcar](https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/quickcreate?templateUrl=https%3A%2F%2Ffleetwise-automation.s3.us-east-1.amazonaws.com%2Ffwdemo.yml&stackName=flyingcar
+)
+)).
 1. (Optional) You can increase the number of simulated vehicles by updating the `FleetSize`
    parameter. You can also specify the region IoT Things are created in by updating the
    `IoTCoreRegion` parameter.

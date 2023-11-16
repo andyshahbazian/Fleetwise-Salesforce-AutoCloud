@@ -1,6 +1,107 @@
 #!/bin/bash
-# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-# SPDX-License-Identifier: Apache-2.0
+
+# Function to check if the AWS IoT Thing exists
+check_and_create_iot_thing() {
+    thing_name=$1
+    echo "Checking if AWS IoT Thing '$thing_name' exists..."
+
+    # Check if the thing exists
+    if aws iot describe-thing --thing-name "$thing_name" 2>/dev/null; then
+        echo "Thing '$thing_name' already exists."
+    else
+        echo "Thing '$thing_name' does not exist. Creating..."
+        aws iot create-thing --thing-name "$thing_name"
+        echo "Thing '$thing_name' created."
+    fi
+}
+
+# Function to list and count existing campaigns
+check_campaigns() {
+    echo "Checking existing campaigns..."
+    campaign_list=$(aws iotfleetwise list-campaigns --query "campaignSummaries[*].arn" --output text)
+    campaign_count=$(echo "$campaign_list" | wc -w) # Counting the number of campaigns
+
+    echo "Total campaigns: $campaign_count"
+    if [ "$campaign_count" -ge 18 ]; then # Assuming 20 is the limit, adjust as necessary
+        echo "Warning: You are close to the maximum number of campaigns (20)."
+        echo "Existing campaigns:"
+        echo "$campaign_list"
+        
+        read -p "Do you want to delete old campaigns? (y/n) " choice
+        if [[ $choice == [Yy]* ]]; then
+            delete_old_campaigns "$campaign_list"
+        fi
+    fi
+}
+
+# Function to delete selected old campaigns
+delete_old_campaigns() {
+    for campaign_arn in $1
+    do
+        echo "Campaign ARN: $campaign_arn"
+        read -p "Delete this campaign? (y/n) " delete_choice
+        if [[ $delete_choice == [Yy]* ]]; then
+            aws iotfleetwise delete-campaign --campaign-arn "$campaign_arn"
+            echo "Deleted campaign $campaign_arn"
+        fi
+    done
+}
+
+# ===================================
+# AWS IoT FleetWise Cloud Demo Script
+# ===================================
+echo "==================================="
+echo "AWS IoT FleetWise Cloud Demo Script"
+echo "==================================="
+
+date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+echo "Date: $date"
+
+# Generate a unique disambiguator for resources
+disambiguator=$(openssl rand -hex 10)
+echo "Disambiguator: $disambiguator"
+
+# Parse command line arguments
+for i in "$@"
+do
+case $i in
+    --vehicle-name=*)
+    VEHICLE_NAME="${i#*=}"
+    shift
+    ;;
+    --enable-s3-upload)
+    ENABLE_S3_UPLOAD=YES
+    shift
+    ;;
+esac
+done
+
+echo "Vehicle name: $VEHICLE_NAME"
+echo "Fleet Size: 1"
+echo "Vehicles: $VEHICLE_NAME"
+
+# Checking AWS CLI version
+aws_cli_version=$(aws --version)
+echo "Checking AWS CLI version..."
+echo $aws_cli_version
+
+# Getting AWS account ID
+aws_account_id=$(aws sts get-caller-identity --query "Account" --output text)
+echo "Getting AWS account ID..."
+echo $aws_account_id
+
+# Check and create the AWS IoT Thing 'fwdemo'
+check_and_create_iot_thing "$VEHICLE_NAME"
+
+# Check and handle existing campaigns
+check_campaigns
+
+# Rest of your existing script...
+
+
+
+#rest of the original code 
+
 
 set -euo pipefail
 
